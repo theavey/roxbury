@@ -44,13 +44,16 @@ class Roxbury(object):
     iv = b'54eRty@hkL,;/y9U'
     key = b'4efgvbn m546Uy7kolKrftgbn =-0u&~'
     
-    def __init__(self, ip='192.168.101.154'):
+    def __init__(self, ip='192.168.101.154', get_initial_status=True):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.ip = ip
         self.connect()
         if True:
             self.thread = Thread(target=self.listen, daemon=True)
             self.thread.start()
+        self.status = dict()
+        if get_initial_status:
+            self.get_info()  # get some stuff for status
         
     def encrypt_packet(self, data):
         padlen = 16 - (len(data) % 16)
@@ -65,15 +68,13 @@ class Roxbury(object):
         return prelude + encrypted
 
     def decrypt_packet(self, data):
-        global raw_decrypted
         cipher = AES.new(self.key, AES.MODE_CBC, self.iv)
         decrypt = cipher.decrypt(data)
         logging.debug(f'raw decrypted: {decrypt}')
         padding = decrypt[-1:]
         decrypt = decrypt[:-ord(padding)]
-        raw_decrypted = decrypt
-        return str(decrypt, 'utf-8', # errors='ignore'
-                  )
+        return str(decrypt, 'utf-8',  # errors='ignore'
+                   )
 
     def listen(self, ):
         data = ['']
@@ -81,7 +82,7 @@ class Roxbury(object):
             try:
                 data = self.socket.recv(1)
             except Exception:
-                self.socket.connect(('192.168.101.146', 9741))
+                self.socket.connect((self.ip, 9741))
             if data[0] == 0x10:
                 data = self.socket.recv(4)
                 length = struct.unpack(">I", data)[0]
@@ -91,11 +92,19 @@ class Roxbury(object):
                 if response is not None:
                     logging.debug(f'decrypted: {response}')
                     logging.debug(f'unjsoned: {json.loads(response)}')
-                    logging.info(json.loads(response))
+                    response = json.loads(response)
+                    self._set_status(response.get('data', None))
+                    logging.info(response)
 
-    def connect(self, ):
-        self.socket.connect((self.ip, 9741))
+    def _set_status(self, data):
+        if data is None:
+            return
+        self.status.update(data)
+        if 'info' in data:
+            self.status.update(data['info'])
 
+    def connect(self, port=9741):
+        self.socket.connect((self.ip, port))
 
     def send_packet(self, data):
         packet = self.encrypt_packet(json.dumps(data))
@@ -107,6 +116,14 @@ class Roxbury(object):
                 self.socket.send(packet)
             except Exception:
                 pass
+
+    @property
+    def volume(self):
+        return self.status.get('vol', None)
+
+    @volume.setter
+    def volume(self, volume):
+        self.set_volume(volume)
 
     def set_mute(self, enable):
         data = {'msg': 'MUTE_SET', 'data': {'mute': enable}}
@@ -130,8 +147,11 @@ class Roxbury(object):
             try:
                 num = input_dict[selection.lower()]
             except KeyError:
-                raise ValueError('Unrecognized input selection {}.'.format(selection))
+                raise ValueError('Unrecognized input selection '
+                                 '{}.'.format(selection))
         data = {'msg': 'FUNCTION_SET', 'data': {'type': num}}
+        self.send_packet(data)
+        data = {'msg': 'FUNC_INFO_REQ'}
         self.send_packet(data)
         
     def volume_up(self, ):
@@ -141,3 +161,21 @@ class Roxbury(object):
     def volume_down(self, ):
         data = {'msg': 'VOLUME_DOWN'}
         self.send_packet(data)
+
+    def get_info(self):
+        data = {'msg': 'PRODUCT_INFO', 'data': {'option': 0}}
+        self.send_packet(data)
+
+    def set_volume(self, volume):
+        if self.volume is None:
+            self.get_info()
+            time.sleep(1)
+            if self.volume is None:
+                # TODO define custom exception for this
+                raise ValueError('Could not find volume to set it')
+        if self.volume < volume:
+            for i in range(volume - self.volume):
+                self.volume_up()
+        if self.volume > volume:
+            for i in range(self.volume - volume):
+                self.volume_down()
