@@ -22,16 +22,14 @@ under the same license.
 #    limitations under the License.
 
 
+import json
 import logging
+import socket
+import struct
+import time
+from threading import Thread
 
 from Crypto.Cipher import AES
-
-import socket
-import json
-import struct
-from threading import Thread
-import time
-
 
 __all__ = ['Roxbury']
 
