@@ -41,7 +41,7 @@ _l = logging.getLogger()
 class Roxbury(object):
     iv = b'54eRty@hkL,;/y9U'
     key = b'4efgvbn m546Uy7kolKrftgbn =-0u&~'
-    
+
     def __init__(self, ip='192.168.101.154', get_initial_status=True):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.ip = ip
@@ -52,7 +52,7 @@ class Roxbury(object):
         self.status = dict()
         if get_initial_status:
             self.get_info()  # get some stuff for status
-        
+
     def encrypt_packet(self, data):
         padlen = 16 - (len(data) % 16)
         for i in range(padlen):
@@ -117,7 +117,13 @@ class Roxbury(object):
 
     @property
     def volume(self):
-        return self.status.get('vol', None)
+        return self._get_setting('vol')
+
+    def _get_setting(self, prop):
+        if self.status.get(prop, None) is None:
+            self.get_info()
+            time.sleep(0.25)
+        return self.status.get(prop, None)
 
     @volume.setter
     def volume(self, volume):
@@ -131,19 +137,42 @@ class Roxbury(object):
         data = {'msg': 'FUNCTION_SET', 'data': {'type': 2}}
         self.send_packet(data)
 
-    def set_input(self, selection):
-        input_dict = {'wifi': 0, 'wi-fi': 0, 'wireless': 0,
-                      'bluetooth': 1, 'bt': 1,
-                      'portable': 2, 'analog': 2, 'aux': 2,
-                      'optical': 4,
-                      'hdmi': 6, 'hdmi in': 6, 'hdmiin': 6,
-                      'tv arc': 7, 'arc': 7,
-                      'lg tv': 12, 'lgtv': 12}
+    source_dict = {'wifi': 0, 'wi-fi': 0, 'wireless': 0,
+                   'bluetooth': 1, 'bt': 1,
+                   'portable': 2, 'analog': 2, 'aux': 2,
+                   'optical': 4,
+                   'hdmi': 6, 'hdmi in': 6, 'hdmiin': 6,
+                   'tv arc': 7, 'arc': 7,
+                   'lg tv': 12, 'lgtv': 12}
+
+    source_rev_dict = {0: 'WiFi',
+                       1: 'Bluetooth',
+                       2: 'Portable',
+                       4: 'Optical',
+                       6: 'HDMI',
+                       7: 'ARC',
+                       12: 'LG TV',
+                       }
+
+    @property
+    def source_choices(self):
+        choices = list(self.source_rev_dict.values())
+        return choices
+
+    @property
+    def source(self):
+        return self.source_rev_dict[int(self._get_setting('function'))]
+
+    @source.setter
+    def source(self, value):
+        self.set_source(value)
+
+    def set_source(self, selection):
         try:
             num = int(selection)
         except ValueError:
             try:
-                num = input_dict[selection.lower()]
+                num = self.source_dict[selection.lower()]
             except KeyError:
                 raise ValueError('Unrecognized input selection '
                                  '{}.'.format(selection))
@@ -151,11 +180,13 @@ class Roxbury(object):
         self.send_packet(data)
         data = {'msg': 'FUNC_INFO_REQ'}
         self.send_packet(data)
-        
+
+    set_input = set_source
+
     def volume_up(self, ):
         data = {'msg': 'VOLUME_UP'}
         self.send_packet(data)
-        
+
     def volume_down(self, ):
         data = {'msg': 'VOLUME_DOWN'}
         self.send_packet(data)
